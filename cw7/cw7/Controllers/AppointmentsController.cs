@@ -180,5 +180,94 @@ public class AppointmentsController : ControllerBase
         return CreatedAtAction(nameof(GetAsyncById), new { id = newId }, ca);
     }
     
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> PutAsync(int id, [FromBody] CreateAppointment ca, CancellationToken ct)
+    {
+        
+        var connectionString = _configuration.GetConnectionString("DefaultConnection");
+        
+        await using var con = new SqlConnection(connectionString);
+
+        await using var com = new SqlCommand();
+
+        com.Connection = con;
+        
+        await con.OpenAsync(ct);
+
+        com.CommandText = "Select 1 FROM Appointments WHERE IdAppointment = @id";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@id", id);
+
+        var result = await com.ExecuteScalarAsync(ct);
+        if (result is null)
+        {
+            return NotFound("Appointment not found");
+        }
+        
+        com.CommandText = "SELECT 1 FROM Patients WHERE IdPatient = @id AND IsActive = 1";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@id", ca.IdPatient);
+        
+        result = await com.ExecuteScalarAsync(ct);
+        if (result is null)
+        {
+            return BadRequest("Patient not found or is not active");
+        }
+        
+        com.CommandText = "SELECT 1 FROM Doctors WHERE IdDoctor = @id AND IsActive = 1";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@id", ca.IdDoctor);
+        
+        result = await com.ExecuteScalarAsync(ct);
+        if (result is null)
+        {
+            return BadRequest("Doctor not found or is not active");
+        }
+
+        if (!ca.Status.Equals("Scheduled") && !ca.Status.Equals("Completed") && !ca.Status.Equals("Cancelled"))
+        {
+            return BadRequest("Status does not exist");
+        }
+
+        com.CommandText = "SELECT 1 FROM Appointments WHERE AppointmentDate != @ap AND Status = 'Completed' AND IdAppointment = @id";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@ap", ca.AppointmentDate);
+        com.Parameters.AddWithValue("@id", id);
+
+        result = await com.ExecuteScalarAsync(ct);
+        if (result is not null)
+        {
+            return BadRequest("Completed appointment date cannot be changed");
+        }
+
+        com.CommandText = "SELECT 1 FROM Appointments WHERE IdDoctor = @idDoc AND AppointmentDate = @date AND IdAppointment != @idAp AND Status = 'Scheduled'";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@idDoc", ca.IdDoctor);
+        com.Parameters.AddWithValue("@date", ca.AppointmentDate);
+        com.Parameters.AddWithValue("@idAp", id);
+
+        result = await com.ExecuteScalarAsync(ct);
+        if (result is not null)
+        {
+            return Conflict("Doctor has appointment in that date");
+        }
+
+        com.CommandText = @"UPDATE Appointments SET IdPatient = @idPat, IdDoctor = @idDoc, AppointmentDate = @date, Status = @st, Reason = @r, InternalNotes = @in 
+                    WHERE IdAppointment = @id";
+
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@idPat",  ca.IdPatient);
+        com.Parameters.AddWithValue("@idDoc",  ca.IdDoctor);
+        com.Parameters.Add("@date", SqlDbType.DateTime2).Value = ca.AppointmentDate;
+        com.Parameters.AddWithValue("@st", ca.Status);
+        com.Parameters.AddWithValue("@r", ca.Reason);
+        com.Parameters.AddWithValue("@in", (object?)ca.InternalNotes ?? DBNull.Value);
+        com.Parameters.AddWithValue("@id", id);
+
+        await com.ExecuteNonQueryAsync(ct);
+        
+        return NoContent();
+    }
+    
     
 }
