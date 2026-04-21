@@ -268,6 +268,48 @@ public class AppointmentsController : ControllerBase
         
         return NoContent();
     }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteAsync(int id, CancellationToken ct)
+    {
+
+        var connectionString = _configuration.GetConnectionString("DefaultConnection");
+
+        await using var con = new SqlConnection(connectionString);
+
+        await using var com = new SqlCommand();
+        
+        com.Connection = con;
+        
+        await con.OpenAsync(ct);
+        
+        com.CommandText = "Select 1 FROM Appointments WHERE IdAppointment = @id";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@id", id);
+        
+        var result = await com.ExecuteScalarAsync(ct);
+        if (result is null)
+        {
+            return NotFound("Appointment not found");
+        }
+        
+        com.CommandText = "Select 1 FROM Appointments WHERE IdAppointment = @id AND Status = 'Completed'";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@id", id);
+        
+        result = await com.ExecuteScalarAsync(ct);
+        if (result is not null)
+        {
+            return Conflict("Cannot delete completed appointment");
+        }
+        
+        com.CommandText = "DELETE FROM Appointments WHERE IdAppointment = @id";
+        com.Parameters.Clear();
+        com.Parameters.AddWithValue("@id", id);
+        
+        await com.ExecuteNonQueryAsync(ct);
+        return NoContent();
+    }
     
     
 }
